@@ -3,6 +3,8 @@ import validator from 'validator'
 import { useState, useEffect } from 'react'
 import backgroundImage from '../../Images/signinbackground.jpg'
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 export default function Login() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -58,7 +60,7 @@ export default function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/login', {
+      const response = await fetch(`${API_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -105,7 +107,7 @@ export default function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/verify-email', {
+      const response = await fetch(`${API_URL}/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -118,7 +120,7 @@ export default function Login() {
         alert('Email verified successfully! Now logging you in...')
         
         // Auto login after verification
-        const loginResponse = await fetch('http://localhost:3000/login', {
+        const loginResponse = await fetch(`${API_URL}/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -150,7 +152,7 @@ export default function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/forgot-password', {
+      const response = await fetch(`${API_URL}/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
@@ -203,7 +205,7 @@ export default function Login() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/reset-password', {
+      const response = await fetch(`${API_URL}/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, resetCode, newPassword })
@@ -234,7 +236,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const response = await fetch('http://localhost:3000/resend-reset-code', {
+      const response = await fetch(`${API_URL}/resend-reset-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })

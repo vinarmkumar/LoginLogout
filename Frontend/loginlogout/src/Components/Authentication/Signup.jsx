@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import backgroundImage from '../../Images/signinbackground.jpg'
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
@@ -44,7 +46,7 @@ export default function Signup() {
       if (step === 2 && email) {
         // User is leaving during verification step - cleanup
         try {
-          await fetch('http://localhost:3000/cleanup-unverified', {
+          await fetch(`${API_URL}/cleanup-unverified`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -120,7 +122,7 @@ export default function Signup() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/register', {
+      const response = await fetch(`${API_URL}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -160,7 +162,7 @@ export default function Signup() {
     }
 
     try {
-      const response = await fetch('http://localhost:3000/verify-email', {
+      const response = await fetch(`${API_URL}/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -190,7 +192,7 @@ export default function Signup() {
     setResendLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3000/resend-verification-code', {
+      const response = await fetch(`${API_URL}/resend-verification-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -383,7 +385,7 @@ export default function Signup() {
             onClick={async () => {
               // Cleanup before going back
               try {
-                await fetch('http://localhost:3000/cleanup-unverified', {
+                await fetch(`${API_URL}/cleanup-unverified`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   credentials: 'include',
