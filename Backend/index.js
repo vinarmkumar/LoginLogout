@@ -3,6 +3,8 @@ const main = require('./database');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const validator = require('validator');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const app = express();
 const User = require('./Models/User');
 const TempUser = require('./Models/TempUser');
@@ -11,87 +13,177 @@ const userAuth = require('./MiddleWare/userAuth');
 const { SendVerificationCode, SendPasswordResetCode } = require('./MiddleWare/Email');
 require('dotenv').config();
 
-app.use(cookieParser());
-app.use(express.json());
+// ==================== SECURITY MIDDLEWARE ====================
+// Helmet for HTTP headers security
+app.use(helmet());
+
+// Body parser middleware
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ limit: '10kb', extended: true }));
+// Use a cookie secret when available so signed cookies work correctly.
+// Falls back to a development-only secret if not provided.
+const cookieSecret = process.env.COOKIE_SECRET || 'dev-cookie-secret-please-change';
+app.use(cookieParser(cookieSecret));
+
+// CORS Configuration
 const cors = require('cors');
-app.use(cors({
+const corsOptions = {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 3600
+};
+app.use(cors(corsOptions));
 
-app.get('/info', userAuth, async (req, res) => {
-    try {
-        const allUsers = await User.find();
-        res.status(200).json(allUsers);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Error fetching users" });
-    }
+// ==================== RATE LIMITING ====================
+// General API rate limit
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
+// Auth endpoints rate limit (stricter)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // limit each IP to 5 requests per windowMs
+    message: 'Too many login attempts, please try again later.',
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
+// Email sending rate limit
+const emailLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 3, // limit each IP to 3 requests per minute
+    message: 'Too many email requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+app.use('/api/', generalLimiter);
+
+// ==================== ENVIRONMENT VALIDATION ====================
+const requiredEnvVars = [
+    'DB_CONNECT_KEY',
+    'JWT_SECRET',
+    'BREVO_API_KEY',
+    'BREVO_SENDER_EMAIL'
+];
+
+for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+        console.error(`❌ Missing required environment variable: ${envVar}`);
+        process.exit(1);
+    }
+}
+
+console.log(`✅ All required environment variables are set`);
+console.log(`🔒 Running in ${process.env.NODE_ENV || 'development'} mode`);
+
+// ==================== UTILITY FUNCTIONS ====================
+// Standardized API response
+const sendResponse = (res, statusCode, message, data = null) => {
+    const response = { message };
+    if (data) response.data = data;
+    return res.status(statusCode).json(response);
+};
+
+// Input sanitization
+const sanitizeEmail = (email) => {
+    return email.toLowerCase().trim();
+};
+
+// ==================== ROUTES ====================
+
+// Get user info (protected route)
 app.get('/user', userAuth, async(req, res)=>{
     try{
         const userId = req.userId;
-        const result = await User.findById(userId);
+        const result = await User.findById(userId).select('-password');
         
         if(!result){
-            return res.status(404).json({message: "User not found"});
+            return sendResponse(res, 404, "User not found");
         }
 
-        res.status(200).json(result);
+        sendResponse(res, 200, "User retrieved successfully", result);
     }
     catch(err){
-        console.error(err);
-        res.status(500).json({message: "Error fetching user"});
+        console.error('Error fetching user:', err);
+        sendResponse(res, 500, "Error fetching user");
     }
-})
+});
 
-app.post('/register', async(req, res)=>{
+// Get all users (admin only) - protected route
+app.get('/info', userAuth, async (req, res) => {
+    try {
+        const allUsers = await User.find().select('-password');
+        sendResponse(res, 200, "Users retrieved successfully", allUsers);
+    } catch (err) {
+        console.error('Error fetching users:', err);
+        sendResponse(res, 500, "Error fetching users");
+    }
+});
+
+// Register endpoint
+app.post('/register', authLimiter, emailLimiter, async(req, res)=>{
     try{
         const { name, email, password } = req.body;
         
         // Validate input
         if(!name || !email || !password){
-            return res.status(400).json({message: "Name, email, and password are required"});
+            return sendResponse(res, 400, "Name, email, and password are required");
         }
         
-        if(name.length < 3){
-            return res.status(400).json({message: "Name must be at least 3 characters"});
+        // Sanitize inputs
+        const sanitizedEmail = sanitizeEmail(email);
+        const sanitizedName = name.trim();
+        
+        // Validate name
+        if(sanitizedName.length < 3 || sanitizedName.length > 50){
+            return sendResponse(res, 400, "Name must be between 3 and 50 characters");
         }
         
-        if(!validator.isEmail(email)){
-            return res.status(400).json({message: "Invalid email format"});
+        // Validate email
+        if(!validator.isEmail(sanitizedEmail)){
+            return sendResponse(res, 400, "Invalid email format");
         }
         
+        // Validate password strength
         if(password.length < 8){
-            return res.status(400).json({message: "Password must be at least 8 characters"});
+            return sendResponse(res, 400, "Password must be at least 8 characters");
+        }
+        
+        if(!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)){
+            return sendResponse(res, 400, "Password must contain uppercase, lowercase, and numbers");
         }
         
         // Check if user already exists in permanent database
-        const existingUser = await User.findOne({email: email});
+        const existingUser = await User.findOne({email: sanitizedEmail});
         if(existingUser){
-            return res.status(400).json({message: "Email already registered"});
+            return sendResponse(res, 409, "Email already registered");
         }
 
         // Check if temporary user already exists
-        const existingTempUser = await TempUser.findOne({email: email});
+        const existingTempUser = await TempUser.findOne({email: sanitizedEmail});
         if(existingTempUser){
             // Delete old temporary user and create new one
-            await TempUser.deleteOne({email: email});
+            await TempUser.deleteOne({email: sanitizedEmail});
         }
         
         // Hash the password with bcrypt
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         const verificationCodeExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
 
-        // Store user data temporarily with cookie instead of in database
+        // Store user data temporarily
         const tempUser = await TempUser.create({
-            name,
-            email,
+            name: sanitizedName,
+            email: sanitizedEmail,
             password: hashedPassword,
             verificationCode,
             verificationCodeExpiry
@@ -100,55 +192,66 @@ app.post('/register', async(req, res)=>{
         // Set cookie to store temporary user data
         res.cookie('tempUser', JSON.stringify({
             tempUserId: tempUser._id,
-            email: email,
+            email: sanitizedEmail,
             expiresAt: verificationCodeExpiry.getTime()
         }), {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 5 * 60 * 1000 // 5 minutes
+            maxAge: 5 * 60 * 1000, // 5 minutes
+            signed: true
         });
         
         // Send verification email
-        await SendVerificationCode(email, verificationCode);
+        console.log("🚀 Calling SendVerificationCode function...");
+        const emailResult = await SendVerificationCode(sanitizedEmail, verificationCode);
+        console.log("📬 Email result:", emailResult ? "✅ Sent" : "❌ Failed");
         
-        res.status(201).json({
-            message: "Registration started. Verification code sent to your email. You have 5 minutes to verify.",
-            email: email,
+        if(!emailResult){
+            await TempUser.deleteOne({email: sanitizedEmail});
+            return sendResponse(res, 500, "Failed to send verification email. Please try again.");
+        }
+        
+        sendResponse(res, 201, "Registration started. Verification code sent to your email. You have 5 minutes to verify.", {
+            email: sanitizedEmail,
             expiresIn: 300 // 5 minutes in seconds
         });
     }
     catch(err){
-        console.error(err);
-        res.status(500).json({message: "Error registering user"});
+        console.error("❌ Register endpoint error:", err && err.stack ? err.stack : err);
+        // Keep the client-facing message generic but log full stack for debugging.
+        sendResponse(res, 500, "Error registering user");
     }
-})
+});
 
-app.post('/login', async(req, res)=>{
+// Login endpoint
+app.post('/login', authLimiter, async(req, res)=>{
     try{
         const {email, password} = req.body;
         
         // Validate input
         if(!email || !password){
-            return res.status(400).json({message: "Email and password are required"});
+            return sendResponse(res, 400, "Email and password are required");
         }
         
-        if(!validator.isEmail(email)){
-            return res.status(400).json({message: "Invalid email format"});
+        const sanitizedEmail = sanitizeEmail(email);
+        
+        if(!validator.isEmail(sanitizedEmail)){
+            return sendResponse(res, 400, "Invalid email format");
         }
         
         // Find user and select password field
-        const user = await User.findOne({email: email}).select('+password');
+        const user = await User.findOne({email: sanitizedEmail}).select('+password');
         
         if(!user){
-            return res.status(404).json({message: "User not found"});
+            // Avoid revealing if user exists
+            return sendResponse(res, 401, "Invalid email or password");
         }
 
         // Check if account is locked due to failed login attempts
         if(user.loginLockedUntil && user.loginLockedUntil > new Date()){
             const timeRemaining = Math.ceil((user.loginLockedUntil - new Date()) / 1000);
-            return res.status(423).json({
-                message: `Account locked due to 3 failed login attempts. Try again in ${timeRemaining} seconds or reset your password.`,
+            return sendResponse(res, 429, `Account locked. Try again in ${timeRemaining} seconds or reset your password.`, {
                 accountLocked: true,
                 timeRemaining: timeRemaining,
                 suggestPasswordReset: true
@@ -163,7 +266,7 @@ app.post('/login', async(req, res)=>{
         
         // Check if email is verified
         if(!user.isVerified){
-            return res.status(403).json({message: "Please verify your email first. Check your inbox for verification code."});
+            return sendResponse(res, 403, "Please verify your email first. Check your inbox for verification code.");
         }
         
         const isPasswordValid = await user.comparePassword(password);
@@ -171,15 +274,13 @@ app.post('/login', async(req, res)=>{
             // Increment failed login attempts
             user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
 
-            // Lock account after 3 failed attempts for 10 minutes
+            // Lock account after 3 failed attempts
             if(user.failedLoginAttempts >= 3){
-                user.loginLockedUntil = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes
+                user.loginLockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
                 await user.save();
-                return res.status(423).json({
-                    message: `Account locked due to 3 failed login attempts. Please reset your password to continue. Account will unlock in 2 minutes.`,
+                return sendResponse(res, 429, `Account locked due to failed login attempts. Please reset your password to continue.`, {
                     accountLocked: true,
-                    timeRemaining: 120,
-                    attemptsRemaining: 0,
+                    timeRemaining: 900,
                     suggestPasswordReset: true
                 });
             }
@@ -187,8 +288,7 @@ app.post('/login', async(req, res)=>{
             // Save updated failed attempts
             await user.save();
             const remainingAttempts = 3 - user.failedLoginAttempts;
-            return res.status(401).json({
-                message: `Invalid credentials. ${remainingAttempts} attempt(s) remaining before account lockout.`,
+            return sendResponse(res, 401, `Invalid credentials. ${remainingAttempts} attempt(s) remaining.`, {
                 attemptsRemaining: remainingAttempts
             });
         }
@@ -198,25 +298,35 @@ app.post('/login', async(req, res)=>{
         user.loginLockedUntil = null;
         await user.save();
         
-        // Generate token
-        const token = user.getJwt();
+        // Generate token with shorter expiry for production
+        const token = jwt.sign(
+            { _id: user._id, emailId: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRY || '1h' }
+        );
+        
         res.cookie("token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 24 * 60 * 60 * 1000
+            maxAge: 60 * 60 * 1000, // 1 hour
+            signed: true
         });
         
-        res.status(200).json({
-            message: "Login successful. Email is verified",
-            user: {id: user._id, name: user.name, email: user.email, isVerified: user.isVerified}
+        sendResponse(res, 200, "Login successful", {
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                isVerified: user.isVerified
+            }
         });
     }
     catch(err){
-        console.error(err);
-        res.status(500).json({message: "Login error"});
+        console.error('Login error:', err);
+        sendResponse(res, 500, "Login error");
     }   
-})
+});
 
 app.post('/logout', userAuth, async (req, res)=>{
     try{

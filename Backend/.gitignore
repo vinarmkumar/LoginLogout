@@ -12,6 +12,31 @@ pnpm-lock.yaml
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.local
+.env.*.local
+
+# Sensitive credentials & API keys
+.env.secret
+.secrets/
+credentials.json
+apikeys.json
+config/keys.js
+config/secrets.js
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db.json
+
+# Mail/SMTP logs
+mail-logs/
+email-logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # IDE & Editor
 .vscode/

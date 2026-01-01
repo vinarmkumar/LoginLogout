@@ -1,46 +1,22 @@
-const nodemailer = require("nodemailer");
+const SibApiV3Sdk = require("sib-api-v3-sdk");
 require('dotenv').config();
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-});
+// Configure Brevo API client
+const client = SibApiV3Sdk.ApiClient.instance;
+client.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
 
-// Test the email connection
-transporter.verify(function (error, success) {
-  if (error) {
-    console.log("Email connection error:", error);
-  } else {
-    console.log("Email server is ready to send messages");
-  }
-});
+// Create transactional emails API instance
+const transactionalEmailsApi = new SibApiV3Sdk.TransactionalEmailsApi();
 
-const SendEmail = async (to, verificationCode) => {
-  try {
-    const mailOptions = {
-      from: `"VerifiedAuthority" <${process.env.EMAIL_USER}>`,
-      to: to,  // Use the parameter passed in
-      subject: "Email Verification Code",
-      text: `Your verification code is: ${verificationCode}`,
-      html: `
-        <h2>Email Verification</h2>
-        <p>Your verification code is:</p>
-        <h1 style="color: blue; font-size: 32px; font-weight: bold;">${verificationCode}</h1>
-        <p>Please enter this code to verify your email address.</p>
-      `,
-    };
+// Verify API connection
+if (!process.env.BREVO_API_KEY) {
+  console.error("❌ BREVO_API_KEY is missing in .env file");
+} else if (!process.env.BREVO_SENDER_EMAIL) {
+  console.error("❌ BREVO_SENDER_EMAIL is missing in .env file");
+} else {
+  console.log("✅ Brevo API configured successfully");
+  console.log("   API Key: " + process.env.BREVO_API_KEY.slice(0, 5) + "...");
+  console.log("   Sender Email: " + process.env.BREVO_SENDER_EMAIL);
+}
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully to:", to, "Message ID:", info.messageId);
-    return true;
-  } catch (err) {
-    console.log("Error sending email:", err.message);
-    return false;
-  }
-};
-
-module.exports = SendEmail;
-module.exports.transporter = transporter;
+module.exports = { transactionalEmailsApi, SibApiV3Sdk };

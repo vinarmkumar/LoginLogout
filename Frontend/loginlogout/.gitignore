@@ -24,7 +24,11 @@ out
 # Environment variables - NEVER commit
 .env
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env.*.local
+.env.secret
 
 # Editor directories and files
 .vscode/*
@@ -48,6 +52,22 @@ Thumbs.db
 # Testing
 coverage
 .nyc_output
+
+# Sensitive files
+.secrets/
+credentials.json
+apikeys.json
+
+# Render & Vercel specific
+.vercel/
+.render/
+.vercelignore
+.env.production
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # Cache
 .eslintcache

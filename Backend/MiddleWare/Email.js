@@ -1,38 +1,45 @@
 const { Verification_Email_Template, Password_Reset_Email_Template } = require('../Libs/EmailTemplate.js');
-const { transporter } = require('./Email.config.js');
+const { transactionalEmailsApi, SibApiV3Sdk } = require('./Email.config.js');
+require('dotenv').config();
 
-const SendVerificationCode = async (email,verificationCode) => {
-     try{
-       const response = await transporter.sendMail({
-          from: '"VerifiedAuthority" <princekumarjmp1729@gmail.com>',
-          to: email,
-          subject: "Verify your Email ✔",
-          text: "Verify your Email", // Plain-text version of the message
-          html: Verification_Email_Template.replace("{verificationCode}", verificationCode), // HTML version of the message
-        });
-    console.log("Email sent successfully:", response.messageId);
-       return true;
-     }
-     catch(err){
-         console.log("Error sending email:", err.message);
-     }
-}
+const SendVerificationCode = async (email, verificationCode) => {
+  try {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = "Verify your Email ✔";
+    sendSmtpEmail.htmlContent = Verification_Email_Template.replace("{verificationCode}", verificationCode);
+    sendSmtpEmail.sender = {
+      name: process.env.BREVO_SENDER_NAME || "LoginLogout",
+      email: process.env.BREVO_SENDER_EMAIL,
+    };
+    sendSmtpEmail.to = [{ email: email }];
+
+    const response = await transactionalEmailsApi.sendTransacEmail(sendSmtpEmail);
+    console.log("Verification email sent successfully to:", email, "Message ID:", response.messageId);
+    return true;
+  } catch (err) {
+    console.log("Error sending verification email:", err.message);
+    return false;
+  }
+};
 
 const SendPasswordResetCode = async (email, resetCode) => {
-     try{
-       const response = await transporter.sendMail({
-          from: '"VerifiedAuthority" <princekumarjmp1729@gmail.com>',
-          to: email,
-          subject: "Reset Your Password ✔",
-          text: "Reset Your Password", // Plain-text version of the message
-          html: Password_Reset_Email_Template.replace("{resetCode}", resetCode), // HTML version of the message
-        });
-    console.log("Email sent successfully:", response.messageId);
-       return true;
-     }
-     catch(err){
-         console.log("Error sending email:", err.message);
-     }
-}
+  try {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = "Reset Your Password ✔";
+    sendSmtpEmail.htmlContent = Password_Reset_Email_Template.replace("{resetCode}", resetCode);
+    sendSmtpEmail.sender = {
+      name: process.env.BREVO_SENDER_NAME || "LoginLogout",
+      email: process.env.BREVO_SENDER_EMAIL,
+    };
+    sendSmtpEmail.to = [{ email: email }];
+
+    const response = await transactionalEmailsApi.sendTransacEmail(sendSmtpEmail);
+    console.log("Password reset email sent successfully to:", email, "Message ID:", response.messageId);
+    return true;
+  } catch (err) {
+    console.log("Error sending password reset email:", err.message);
+    return false;
+  }
+};
 
 module.exports = { SendVerificationCode, SendPasswordResetCode };
