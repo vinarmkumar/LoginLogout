@@ -36,6 +36,11 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
+// Root route to verify backend is running
+app.get('/', (req, res) => {
+    res.json({ message: 'Backend is running!' });
+});
+
 // ==================== RATE LIMITING ====================
 // General API rate limit
 const generalLimiter = rateLimit({
